@@ -1,0 +1,230 @@
+# imports
+import math
+import copy
+from typing import List
+import random
+import hashlib
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def modular_inverse(a, m):
+    # return pow(a, -1, m)
+    def egcd(a, b):
+        if a == 0:
+            return (b, 0, 1)
+        else:
+            g, y, x = egcd(b % a, a)
+            return (g, x - (b // a) * y, y)
+
+    def modinv(a, m):
+        g, x, y = egcd(a, m)
+        if g != 1:
+            raise ValueError(f"Modular inverse doesn't exist for {a} under modulo {m}")
+        else:
+            return x % m
+
+    return modinv(a, m)
+
+def modular_exp(a, x, m):
+    if (a == 0 or a == 1):
+        return a
+    
+    res = 1
+    a %= m
+    while (x > 0):
+        if (x % 2 == 1):
+            res = (res * a) % m
+        x >>= 1
+        a = (a * a) % m
+        
+    return res
+# plot the elliptic curve
+def plot_elliptic_curve(a, b):
+    y, x = np.ogrid[-5:5:100j, -5:5:100j]
+    plt.contour(x.ravel(), y.ravel(), y**2 - x**3 - a*x - b, [0])
+    plt.grid()
+    plt.title(f'$ x^3 + ({a}x) + ({b}) $')
+    plt.show()
+
+plot_elliptic_curve(-3, 3)
+
+class EllipticGroupElement:
+    def __init__(self, x, y, a, b, m):
+        self.x, self.y = x, y
+        self.a, self.b = a, b
+        self.m = m
+
+    def __add__(self, Q):
+        # if either of the point is O (point at infinity) then return the same
+        if self.x == math.inf:
+            return Q
+        if Q.x == math.inf:
+            return self
+
+        # If P and Q are same, find slope of the tangent then find R
+        if self == Q:
+            slope = (3 * self.x**2 + self.a) * \
+                    modular_inverse((2 * self.y) % self.m, self.m)
+            xr = slope**2 - 2 * self.x
+            yr = slope*(self.x - xr) - self.y
+
+        # x's are same and y's are opposite on the elliptic curve
+        elif self.x == Q.x and (self.y + Q.y) % self.m == 0:
+            return EllipticGroupElement(math.inf, math.inf, self.a, self.b, self.m)
+        
+        else:
+            slope = (self.y - Q.y) * \
+                    modular_inverse((self.x - Q.x) % self.m, self.m)
+            xr = slope**2 - self.x - Q.x
+            yr = slope*(self.x - xr) - self.y
+
+        xr %= self.m
+        yr %= self.m
+        return EllipticGroupElement(xr, yr, self.a, self.b, self.m)
+
+    def __sub__(self, Q):
+        if Q.x == math.inf:
+            return self
+            
+        Qinv = EllipticGroupElement(Q.x, self.m - Q.y, self.a, self.b, self.m)
+        return self + Qinv
+
+    def __mul__(self, scalar : int):
+        temp = copy.deepcopy(self)
+        ans = copy.deepcopy(self)
+        for _ in range(scalar - 1):
+            ans = ans + temp
+        return ans
+            
+    def __eq__(self, Q):
+        return (self.x, self.y, self.a, self.b, self.m) == \
+                (Q.x, Q.y, Q.a, Q.b, Q.m)
+        
+    def __ne__(self, Q):
+        return not self == Q
+
+    def __repr__(self):
+        return f"({self.x}, {self.y})"
+
+class EllipticGroup:
+    def __init__(self, a, b, m):
+        self.a, self.b = a, b
+        # check for singularity of the elliptic curve
+        if (4 * self.a**3 + 27 * self.b**2) % m == 0:
+            raise ValueError(f"{self.a} and {self.b} will result in a singular elliptic curve")
+
+        self.m = m
+    
+        # creating group elements
+        self.elems = [EllipticGroupElement(math.inf, math.inf, self.a, self.b, self.m)]
+        for i in range(1, self.m):
+            temp = (i ** 3 + self.a * i + self.b) % self.m
+            # loop through all possible values for y
+            for j in range(1, self.m):
+                # if j leaves a quadratic residue append the (i, j) pair to the elem
+                if (j * j) % self.m == temp:
+                    self.elems.append(EllipticGroupElement(i, j, self.a, self.b, self.m))
+
+        # check for closure property of group, if not make the elems empty
+        for i in self.elems:
+            for j in self.elems:
+                if i + j not in self.elems:
+                    self.elems = []
+
+    def __len__(self):
+        return len(self.elems)
+
+    def __repr__(self):
+        return (
+            f"a = {self.a}, b = {self.b}, m = {self.m}\n" 
+            f"Group Elements: \n{repr(self.elems)}"
+        )
+
+class EllipticCryptography:
+    def __init__(self, alpha, sk, a, b, m):
+        self.a, self.b, self.m = a, b, m
+        self.alpha = EllipticGroupElement(*alpha, self.a, self.b, self.m)
+        self.sk = sk                # secret key
+        self.pk = self.alpha * sk   # public key
+        group = EllipticGroup(a, b, m)
+        if not len(group):
+            raise ValueError(f"a={self.a}, b={self.b}, m={self.m} doens't form a Elliptic group")
+
+    def encipher(self, text, k=3):
+        # ciphertext = ""
+        ciphertext = []
+        self.y1 = self.alpha * k
+        for elem in text:
+            # m = self.group.elems[ord(char) - ord('a')]
+            # ciphertext += chr(self.group.elems.index(y) + ord('a'))
+            m = EllipticGroupElement(*elem, self.a, self.b, self.m)
+            y = m + (self.pk * k)
+            ciphertext.append(y)
+
+        return ciphertext, self.y1
+
+    def decipher(self, text):
+        # plaintext = ""
+        plaintext = []
+        for y in text:
+            # y = self.group.elems[ord(char) - ord('a')]
+            # plaintext += chr(self.group.elems.index(c) + ord('a'))
+            c = y - (self.y1 * self.sk)
+            plaintext.append(c)
+
+        return plaintext
+
+    def sign(self, msg):
+        z = int(hashlib.sha1(msg.encode("utf-8")).hexdigest(), 16) % 10
+        while True:
+            k = random.randint(1, self.m - 1)
+            temp = self.alpha * k
+            x, y = temp.x, temp.y
+            r = x % self.m
+            kinv = modular_inverse(k, self.m)
+            s = (kinv * (z + r * self.sk)) % self.m
+            if r and s:
+                return r, s
+
+        # # hash the message to a number
+        # h = int(hashlib.sha1(msg.encode("utf-8")).hexdigest(), 16) % (10)
+        # # k = random.randint(1, self.m)
+        # R = self.alpha * k
+        # # r is a random number which will be sent along with the signature proof
+        # r = R.x
+        # # s is the signature proof that depends on the message
+        # s = (modular_inverse(k, self.m) * (h + r * self.sk)) % self.m
+        # return r, s
+
+    def verify(self, msg, r, s):
+        # h = int(hashlib.sha1(msg.encode("utf-8")).hexdigest(), 16) % (10)
+        # s1 = modular_inverse(s, self.m)
+        # R_ = (self.alpha * ((h * s1) % self.m)) + (self.pk * ((r * s1) % self.m))
+        # print(R_)
+        # return R_.x == r
+        z = int(hashlib.sha1(msg.encode("utf-8")).hexdigest(), 16) % 10
+        sinv = modular_inverse(s, self.m)
+        u1 = (z * sinv) % self.m
+        u2 = (r * sinv) % self.m3
+        temp = (self.alpha * u1) + (self.pk * u2)
+        x = temp.x
+        print(r, x)
+        if x == math.inf:
+            return False
+
+        return (r % self.m) == (x % self.m)
+
+message = [(10, 9)]
+# message = "siva"
+# ecc = EllipticCryptography(alpha=(2, 2), sk=7, a=1, b=17, m=23)
+ecc = EllipticCryptography(alpha=(2, 4), sk=7, a=1, b=6, m=11)
+
+ciphertext = ecc.encipher(message)
+plaintext = ecc.decipher(ciphertext[0])
+
+print("Ciphertext:", ciphertext[0])
+print("Plaintext:", plaintext)
+
+# print(ecc.group)
+
