@@ -1,0 +1,118 @@
+import math
+
+a=1
+b=6
+field=11
+alpha=(2,7)
+#
+def inverse(val, field):
+  for inv in range(field):
+    if val*inv%field==1:
+      break
+    inv+=1
+  return inv
+
+def find_mod(val, field):
+  return val%field
+
+def add(x1, x2, y1, y2, a, b, field):
+  if x1==math.inf:
+    return (x2,y2)
+  elif x2==math.inf:
+    return (x1, y1)
+  elif x1!=x2:
+    slope=(y2-y1)*inverse((x2-x1), field)
+  elif y1==y2:
+    slope = (3*x1**2+a)*inverse((2*y1), field)
+  else:
+    return (math.inf, math.inf)
+  x3 = find_mod(slope**2 - x1 - x2, field)
+  y3 = find_mod(slope*(x1 - x3) - y1, field)
+  return x3, y3
+#
+def generate_all_points(a, b, field, alpha):
+  alpha_mid_x=alpha[0]
+  alpha_mid_y=alpha[1]
+  generated_points=[(alpha[0], alpha[1])]
+  x_list=[alpha[0]]
+  y_list=[alpha[1]]
+  while True:
+    alpha_mid_x, alpha_mid_y = add(alpha[0], alpha_mid_x, alpha[1], alpha_mid_y, a, b, field)
+    generated_points.append((alpha_mid_x, alpha_mid_y))
+    x_list.append(alpha_mid_x)
+    y_list.append(alpha_mid_y)
+    if alpha_mid_x==alpha[0] and alpha_mid_y!=alpha[1]:
+      break
+
+  generated_points.append((math.inf, math.inf))
+  x_list.append(math.inf)
+  y_list.append(math.inf)
+  # print(generated_points)
+  return x_list, y_list, generated_points
+#
+def find_beta_tuple(a, b, field, alpha, beta_times):
+  x_list, y_list, generated_points=generate_all_points(a, b, field, alpha=alpha)
+  beta=generated_points[beta_times%len(generated_points)-1]
+  return beta
+
+def find_y1(a, b, x_test, k, alpha):
+  y1=find_beta_tuple(a, b, field, alpha, beta_times=k)
+  return y1
+
+def find_y2(a, b, x_test, k, alpha, beta_times):
+  xkb, ykb = find_beta_tuple(a, b, field, alpha, beta_times=beta_times)
+  y2=add(x_test[0], xkb, x_test[1], ykb, a, b, field)
+  return y2
+
+x_text=(2, 4)
+
+k=3
+beta_times=7
+alpha=(2, 7)
+y1_enc=find_y1(a, b, x_text, k, alpha)
+y2_enc=find_y2(a, b, x_text, k, alpha, beta_times=k*beta_times)
+print(y1_enc, y2_enc)
+
+def decrypt(y1, y2, k_priv, field):
+  k_new=-k_priv%13
+  yk=find_beta_tuple(a, b, field, alpha=y1, beta_times=k_new)
+  plaintext=add(y2[0], yk[0], y2[1], yk[1], a, b, field)
+  return plaintext
+
+k_priv=beta_times
+decrypt(y1_enc, y2_enc, k_priv, field)
+
+#checking if the they form a group
+x_list, y_list, generated_points=generate_all_points(a, b, field, alpha=alpha)
+n=len(x_list)
+for i in range(n):
+  for j in range(n):
+    x1, y1=x_list[i], y_list[i]
+    x2, y2=x_list[j], y_list[j]
+    
+    #additivity
+    x3, y3= add(x1, x2, y1, y2, a, b, field)
+    if (x3, y3) not in generated_points:
+      print("Does not satisfy additivity")
+
+    #associativity
+    for k in range(n):
+      x3_new, y3_new=x_list[k], y_list[k]
+      x_mid1, y_mid1 = add(x1, x2, y1, y2, a, b, field)
+      x_fin1, y_fin1 = add(x_mid1, x3_new, y_mid1, y3_new, a, b, field)
+
+      x_mid2, y_mid2 = add(x2, x3_new, y2, y3_new, a, b, field)
+      x_fin2, y_fin2 = add(x1, x_mid2, y1, y_mid2, a, b, field)
+
+      if not((x_fin2==x_fin1 and y_fin2==y_fin1) or( x1==x2 or x2==x3_new or x3_new==x1 or x_mid1==x3_new or x_mid2==x1)):
+        print("Does not Satisfy associativity")
+      
+
+    #commutativity
+    x4, y4= add(x2, x1, y2, y1, a, b, field)
+    if not((y3==y4 and x3==x4) or (x1==x2)):
+      print("Does not satisfy commutativity ")
+
+import matplotlib.pyplot as plt
+plt.scatter(x_list, y_list)
+plt.show()
